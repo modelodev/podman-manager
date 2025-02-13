@@ -1,0 +1,18 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    json (2.10.1)
+    logger (1.6.6)
+    open3 (0.2.1)
+
+PLATFORMS
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  json (~> 2.10)
+  logger (~> 1.6)
+  open3 (~> 0.2.1)
+
+BUNDLED WITH
+   2.6.2
