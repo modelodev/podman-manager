@@ -12,6 +12,6 @@ Gem::Specification.new do |spec|
   spec.files         = Dir['lib/**/*']
   spec.require_paths = ['lib']
 
-  spec.add_dependency 'some_dependency'
+  spec.add_dependency 'open3'
 end
 
