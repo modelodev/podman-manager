@@ -3,7 +3,7 @@ require 'tmpdir'
 require 'fileutils'
 require 'open3'
 require 'logger'
-require_relative 'podman_manager'  # Ensure PodmanManager is in this file
+require_relative '../lib/podman-manager'  # Ensure PodmanManager is in this file
 
 # Test suite for PodmanManager
 class TestPodmanManager < Minitest::Test
