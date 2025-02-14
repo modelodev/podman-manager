@@ -2,7 +2,9 @@ require 'open3'
 require 'logger'
 require 'json'
 
-class PodmanManager
+module PodmanManager
+  module_function
+
   class PodmanError < StandardError; end
 
   def initialize(logger = Logger.new(STDOUT))
@@ -29,7 +31,6 @@ class PodmanManager
     end
 
     cmd.push(image)
-    
     stdout_str, stderr_str, status = Open3.capture3(*cmd)
     if block_given?
       stdout_str.each_line { |line| yield(line.chomp, :stdout) }
@@ -215,7 +216,7 @@ class PodmanManager
   def aggregated_stats_for_image(image)
     ids = container_ids_by_image(image)
     stats = ids.map { |id| container_stats(id) }
-    
+
     aggregated = stats.inject({ "cpu" => 0.0, "memory" => 0.0 }) do |acc, stat|
       # Process CPU value: remove any "%" and convert to float.
       cpu_value = stat["cpu"]

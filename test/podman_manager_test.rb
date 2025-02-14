@@ -12,7 +12,6 @@ class TestPodmanManager < Minitest::Test
   # - Create temporary directories for two Dockerfiles.
   # - Build two images: one for an exiting container and one for a looping container.
   def setup
-    @manager = PodmanManager.new(Logger.new(STDOUT))
     @temp_dirs = {}
     build_images
   end
@@ -66,166 +65,164 @@ class TestPodmanManager < Minitest::Test
 
   # Test that the image_exists? method correctly identifies images.
   def test_image_exists
-    assert @manager.image_exists?("test/hola_exit:latest"), "Expected image 'test/hola_exit:latest' to exist"
-    assert @manager.image_exists?("test/hola_loop:latest"), "Expected image 'test/hola_loop:latest' to exist"
-    refute @manager.image_exists?("nonexistent/image:latest"), "Expected nonexistent image to not exist"
+    assert PodmanManager::image_exists?("test/hola_exit:latest"), "Expected image 'test/hola_exit:latest' to exist"
+    assert PodmanManager::image_exists?("test/hola_loop:latest"), "Expected image 'test/hola_loop:latest' to exist"
+    refute PodmanManager::image_exists?("nonexistent/image:latest"), "Expected nonexistent image to not exist"
   end
 
   # Test creating a container from the hola_exit image, starting it,
   # and verifying that it prints "hola" then exits.
   def test_create_and_start_exit_container
-    container_id = @manager.create_container(image: "test/hola_exit:latest", name: "test_exit_container")
-    @manager.start_container(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_exit:latest", name: "test_exit_container")
+    PodmanManager.start_container(container_id)
     # Wait until the container reaches the "exited" status.
-    @manager.wait_for_status(container_id, "exited", timeout: 10, interval: 1)
-    status = @manager.container_status(container_id)
+    PodmanManager.wait_for_status(container_id, "exited", timeout: 10, interval: 1)
+    status = PodmanManager.container_status(container_id)
     assert_equal "exited", status, "Expected container to be exited"
 
     # Capture logs to verify output contains "hola"
     logs = []
-    @manager.stream_container_logs(container_id, follow: false) do |line, stream|
+    PodmanManager.stream_container_logs(container_id, follow: false) do |line, stream|
       logs << line if stream == :stdout
     end
     assert_includes logs.join, "hola", "Expected logs to include 'hola'"
 
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test starting a container from the hola_loop image, ensuring it is running,
   # then stopping it and verifying its status becomes "exited".
   def test_start_and_stop_loop_container
-    container_id = @manager.create_container(image: "test/hola_loop:latest", name: "test_loop_container")
-    @manager.start_container(container_id)
-    status = @manager.container_status(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_loop:latest", name: "test_loop_container")
+    PodmanManager.start_container(container_id)
+    status = PodmanManager.container_status(container_id)
     assert_equal "running", status, "Expected container to be running"
-    @manager.wait_for_status(container_id, "running", timeout: 5, interval: 1)
-    @manager.stop_container(container_id)
-    @manager.wait_for_status(container_id, "exited", timeout: 10, interval: 1)
-    status_after_stop = @manager.container_status(container_id)
+    PodmanManager.wait_for_status(container_id, "running", timeout: 5, interval: 1)
+    PodmanManager.stop_container(container_id)
+    PodmanManager.wait_for_status(container_id, "exited", timeout: 10, interval: 1)
+    status_after_stop = PodmanManager.container_status(container_id)
     assert_equal "exited", status_after_stop, "Expected container to be exited after stop"
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test that with_container initializes a container, yields its ID,
   # and then cleans it up (stopping and removing it) after the block finishes.
   def test_with_container_cleanup
     container_id = nil
-    @manager.with_container(image: "test/hola_exit:latest", name: "test_with_container") do |id|
+    PodmanManager.with_container(image: "test/hola_exit:latest", name: "test_with_container") do |id|
       container_id = id
-      assert @manager.container_exists?(id), "Expected container to exist within with_container block"
+      assert PodmanManager.container_exists?(id), "Expected container to exist within with_container block"
     end
-    refute @manager.container_exists?(container_id), "Expected container to be removed after with_container block"
+    refute PodmanManager.container_exists?(container_id), "Expected container to be removed after with_container block"
   end
 
   # Test retrieving container statistics from a running hola_loop container.
   def test_container_stats
-    container_id = @manager.create_container(image: "test/hola_loop:latest", name: "test_stats_container")
-    @manager.start_container(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_loop:latest", name: "test_stats_container")
+    PodmanManager.start_container(container_id)
     sleep 3  # Allow additional time for stats to become available
-    stats = @manager.container_stats(container_id)
+    stats = PodmanManager.container_stats(container_id)
     assert stats.is_a?(Hash), "Expected container stats to be a Hash"
     assert stats.key?("cpu"), "Expected container stats to include 'cpu'"
     assert stats.key?("mem_usage") || stats.key?("memory"), "Expected container stats to include 'mem_usage' or 'memory'"
-    @manager.stop_container(container_id)
-    @manager.remove_container(container_id)
+    PodmanManager.stop_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test aggregating statistics for all containers from the hola_loop image.
   def test_aggregated_stats_for_image
     container_ids = []
     2.times do
-      container_id = @manager.create_container(image: "test/hola_loop:latest")
+      container_id = PodmanManager.create_container(image: "test/hola_loop:latest")
       container_ids << container_id
-      @manager.start_container(container_id)
+      PodmanManager.start_container(container_id)
     end
     sleep 3  # Allow containers to generate stats
-    aggregated = @manager.aggregated_stats_for_image("test/hola_loop:latest")
+    aggregated = PodmanManager.aggregated_stats_for_image("test/hola_loop:latest")
     assert aggregated.is_a?(Hash), "Expected aggregated stats to be a Hash"
     assert aggregated.key?("aggregated"), "Expected aggregated stats to have an 'aggregated' key"
     assert_kind_of Numeric, aggregated["aggregated"]["cpu"], "Expected aggregated CPU to be numeric"
     assert_kind_of Numeric, aggregated["aggregated"]["memory"], "Expected aggregated memory to be numeric"
     container_ids.each do |id|
-      @manager.stop_container(id)
-      @manager.remove_container(id)
+      PodmanManager.stop_container(id)
+      PodmanManager.remove_container(id)
     end
   end
 
   # Test that streaming container logs yields the expected output.
   def test_stream_container_logs
-    container_id = @manager.create_container(image: "test/hola_exit:latest", name: "test_logs_container")
-    @manager.start_container(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_exit:latest", name: "test_logs_container")
+    PodmanManager.start_container(container_id)
     logs = []
-    @manager.stream_container_logs(container_id, follow: false) do |line, stream|
+    PodmanManager.stream_container_logs(container_id, follow: false) do |line, stream|
       logs << line if stream == :stdout
     end
     assert logs.any? { |line| line.include?("hola") }, "Expected logs to include 'hola'"
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test that wait_for_status raises a timeout error when the desired status is not reached.
   def test_wait_for_status_timeout
-    container_id = @manager.create_container(image: "test/hola_loop:latest", name: "test_timeout_container")
-    @manager.start_container(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_loop:latest", name: "test_timeout_container")
+    PodmanManager.start_container(container_id)
     assert_raises(PodmanManager::PodmanError, "Expected timeout error when waiting for status that never occurs") do
-      @manager.wait_for_status(container_id, "exited", timeout: 3, interval: 1)
+      PodmanManager.wait_for_status(container_id, "exited", timeout: 3, interval: 1)
     end
-    @manager.stop_container(container_id)
-    @manager.remove_container(container_id)
+    PodmanManager.stop_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test error handling for operations on a nonexistent container.
   def test_error_handling_for_nonexistent_container
     fake_id = "nonexistent_container_id"
-    refute @manager.container_exists?(fake_id), "Expected container to not exist"
-    assert_nil @manager.container_status(fake_id), "Expected container_status to return nil for nonexistent container"
+    refute PodmanManager.container_exists?(fake_id), "Expected container to not exist"
+    assert_nil PodmanManager.container_status(fake_id), "Expected container_status to return nil for nonexistent container"
     assert_raises(PodmanManager::PodmanError, "Expected error when starting nonexistent container") do
-      @manager.start_container(fake_id)
+      PodmanManager.start_container(fake_id)
     end
   end
 
   # Test that create_container yields output when a block is provided.
   def test_create_container_with_block
     lines = []
-    container_id = @manager.create_container(image: "test/hola_exit:latest", name: "test_block_container") do |line, stream|
+    container_id = PodmanManager.create_container(image: "test/hola_exit:latest", name: "test_block_container") do |line, stream|
       lines << line
     end
     refute_empty container_id, "Expected container id to be returned"
     assert lines.any?, "Expected create_container block to receive output lines"
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test that start_container yields output when a block is provided.
   def test_start_container_with_block
-    container_id = @manager.create_container(image: "test/hola_exit:latest", name: "test_start_block_container")
+    container_id = PodmanManager.create_container(image: "test/hola_exit:latest", name: "test_start_block_container")
     lines = []
-    @manager.start_container(container_id) do |line, stream|
+    PodmanManager.start_container(container_id) do |line, stream|
       lines << line
     end
     assert lines.any?, "Expected start_container block to receive output lines"
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test that stop_container yields output when a block is provided.
   def test_stop_container_with_block
-    container_id = @manager.create_container(image: "test/hola_loop:latest", name: "test_stop_block_container")
-    @manager.start_container(container_id)
+    container_id = PodmanManager.create_container(image: "test/hola_loop:latest", name: "test_stop_block_container")
+    PodmanManager.start_container(container_id)
     lines = []
-    @manager.stop_container(container_id) do |line, stream|
+    PodmanManager.stop_container(container_id) do |line, stream|
       lines << line
     end
     assert lines.any?, "Expected stop_container block to receive output lines"
-    @manager.remove_container(container_id)
+    PodmanManager.remove_container(container_id)
   end
 
   # Test that remove_container yields output when a block is provided.
   def test_remove_container_with_block
-    container_id = @manager.create_container(image: "test/hola_exit:latest", name: "test_remove_block_container")
+    container_id = PodmanManager.create_container(image: "test/hola_exit:latest", name: "test_remove_block_container")
     lines = []
-    @manager.remove_container(container_id) do |line, stream|
+    PodmanManager.remove_container(container_id) do |line, stream|
       lines << line
     end
     assert lines.any?, "Expected remove_container block to receive output lines"
   end
 end
-
-
