@@ -239,5 +239,30 @@ module PodmanManager
     # Return a hash with string keys to match test expectations.
     { "containers" => stats, "aggregated" => aggregated }
   end
+
+  # Read a file from an image/container
+  # Returns the file content as a string, or nil if not found
+  def read_file(container_id, file_path)
+    cmd = ["podman", "exec", container_id, "cat", file_path]
+    stdout_str, stderr_str, status = Open3.capture3(*cmd)
+
+    if status.success?
+      stdout_str
+    else
+      @logger&.warn "Could not read file #{file_path}: #{stderr_str}"
+      nil
+    end
+  end
+
+  # Check if a file exists in a container
+  # Returns true if file exists, false otherwise
+  def file_exists?(container_id, file_path)
+    cmd = ["podman", "exec", container_id, "test", "-f", file_path]
+    _, _, status = Open3.capture3(*cmd)
+    status.success?
+  rescue PodmanError => e
+    @logger&.error "Error checking file existence: #{e.message}"
+    false
+  end
 end
 

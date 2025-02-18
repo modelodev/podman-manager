@@ -13,6 +13,8 @@ class TestPodmanManager < Minitest::Test
   # - Build two images: one for an exiting container and one for a looping container.
   def setup
     @temp_dirs = {}
+    @special_content = "Hello\nWorld\n测试\n€\n"
+    @large_content = "x" * 1_000_000
     build_images
   end
 
@@ -21,8 +23,13 @@ class TestPodmanManager < Minitest::Test
     @temp_dirs.each_value do |dir|
       FileUtils.remove_entry(dir) if Dir.exist?(dir)
     end
-    remove_test_image("test/hola_exit:latest")
-    remove_test_image("test/hola_loop:latest")
+    [
+      'test/hola_exit:latest',
+      'test/hola_loop:latest',
+      'test/file_test:latest',
+      'test/special_chars:latest',
+      'test/large_file:latest'
+    ].each { |image| remove_test_image(image) }
   end
 
   # Build the two test images using temporary Dockerfile contexts.
@@ -44,6 +51,41 @@ class TestPodmanManager < Minitest::Test
       CMD sh -c 'while true; do echo "hola"; sleep 5; done'
     DOCKERFILE
     build_image(loop_dir, "test/hola_loop:latest")
+
+    # Build image with test file
+    file_test_dir = Dir.mktmpdir("file_test")
+    @temp_dirs[:file_test] = file_test_dir
+    File.write(File.join(file_test_dir, "test.txt"), "hello world")
+    File.write(File.join(file_test_dir, "Dockerfile"), <<~DOCKERFILE)
+      FROM alpine:latest
+      COPY test.txt /etc/test.txt
+      CMD ["tail", "-f", "/dev/null"]
+    DOCKERFILE
+    build_image(file_test_dir, "test/file_test:latest")
+
+    # Build image with special characters file
+    special_chars_dir = Dir.mktmpdir("special_chars_test")
+    @temp_dirs[:special_chars_test] = special_chars_dir
+    @special_content = "Hello\nWorld\n测试\n€\n"
+    File.write(File.join(special_chars_dir, "special.txt"), @special_content)
+    File.write(File.join(special_chars_dir, "Dockerfile"), <<~DOCKERFILE)
+      FROM alpine:latest
+      COPY special.txt /etc/special.txt
+      CMD ["tail", "-f", "/dev/null"]
+    DOCKERFILE
+    build_image(special_chars_dir, "test/special_chars:latest")
+
+    # Build image with large file
+    large_file_dir = Dir.mktmpdir("large_file_test")
+    @temp_dirs[:large_file_test] = large_file_dir
+    @large_content = "x" * 1_000_000
+    File.write(File.join(large_file_dir, "large.txt"), @large_content)
+    File.write(File.join(large_file_dir, "Dockerfile"), <<~DOCKERFILE)
+      FROM alpine:latest
+      COPY large.txt /etc/large.txt
+      CMD ["tail", "-f", "/dev/null"]
+    DOCKERFILE
+    build_image(large_file_dir, "test/large_file:latest")
   end
 
   # Helper to build a Podman image given a build context and tag.
@@ -224,5 +266,78 @@ class TestPodmanManager < Minitest::Test
       lines << line
     end
     assert lines.any?, "Expected remove_container block to receive output lines"
+  end
+
+  # Test file operations with containers
+  def test_read_file_from_container
+    # Probar lectura del fichero
+    container_id = PodmanManager.create_container(image: "test/file_test:latest")
+    begin
+      PodmanManager.start_container(container_id)
+      # Test successful file read
+      content = PodmanManager.read_file(container_id, "/etc/test.txt")
+      assert_equal "hello world", content.strip, "Expected file content to match"
+
+      # Test reading non-existent file
+      content = PodmanManager.read_file(container_id, "/etc/nonexistent.txt")
+      assert_nil content, "Expected nil when reading non-existent file"
+    ensure
+      PodmanManager.stop_container(container_id) rescue nil
+      PodmanManager.remove_container(container_id)
+      remove_test_image("test/file_test:latest")
+    end
+  end
+
+  def test_file_exists_in_container
+    # Probar existencia de ficheros
+    container_id = PodmanManager.create_container(image: "test/file_test:latest")
+    begin
+      PodmanManager.start_container(container_id)
+      # Test existing file
+      assert PodmanManager.file_exists?(container_id, "/etc/test.txt"), 
+             "Expected /etc/test.txt to exist in container"
+
+      # Test non-existent file
+      refute PodmanManager.file_exists?(container_id, "/etc/nonexistent.txt"), 
+             "Expected /etc/nonexistent.txt to not exist in container"
+
+      # Test with invalid container ID
+      refute PodmanManager.file_exists?("invalid_container", "/etc/test.txt"), 
+             "Expected file_exists? to return false with invalid container"
+    ensure
+      PodmanManager.stop_container(container_id) rescue nil
+      PodmanManager.remove_container(container_id)
+      remove_test_image("test/file_test:latest")
+    end
+  end
+
+  def test_read_file_with_special_characters
+    # Probar lectura del fichero con caracteres especiales
+    container_id = PodmanManager.create_container(image: "test/special_chars:latest")
+    begin
+      PodmanManager.start_container(container_id)
+      content = PodmanManager.read_file(container_id, "/etc/special.txt")
+      assert_equal @special_content, content, 
+                   "Expected file content with special characters to match"
+    ensure
+      PodmanManager.stop_container(container_id) rescue nil
+      PodmanManager.remove_container(container_id)
+      remove_test_image("test/special_chars:latest")
+    end
+  end
+
+  def test_read_large_file
+    # Probar lectura del fichero grande
+    container_id = PodmanManager.create_container(image: "test/large_file:latest")
+    begin
+      PodmanManager.start_container(container_id)
+      content = PodmanManager.read_file(container_id, "/etc/large.txt")
+      assert_equal @large_content.length, content.length, 
+                   "Expected large file content length to match"
+    ensure
+      PodmanManager.stop_container(container_id) rescue nil
+      PodmanManager.remove_container(container_id)
+      remove_test_image("test/large_file:latest")
+    end
   end
 end
