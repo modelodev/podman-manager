@@ -15,94 +15,115 @@ class TestPodmanManager < Minitest::Test
     large:   'test/large_file:latest'
   }.freeze
 
-  def setup
-    @temp_dirs = {}
-    @special_content = "Hello\nWorld\n测试\n€\n"
-    @large_content   = "x" * 1_000_000
-    build_all_images
-  end
+  # Variables de clase para construir imágenes solo una vez.
+  @images_built    = false
+  @temp_dirs       = {}
+  @special_content = "Hello\nWorld\n测试\n€\n"
+  @large_content   = "x" * 1_000_000
 
-  def teardown
-    @temp_dirs.each_value { |dir| FileUtils.remove_entry(dir) if Dir.exist?(dir) }
-    TEST_IMAGES.values.each { |tag| remove_test_image(tag) }
-  end
+  class << self
+    attr_accessor :images_built, :temp_dirs, :special_content, :large_content
 
-  # --- Helper methods for building and removing images ---
-
-  # Creates a temporary directory, writes files, and builds an image.
-  # files: a hash mapping relative file paths to their content.
-  # dockerfile: the content of the Dockerfile.
-  # image_tag: the tag for the built image.
-  def build_temp_image(prefix, image_tag, dockerfile, files = {})
-    dir = Dir.mktmpdir(prefix)
-    @temp_dirs[prefix.to_sym] = dir
-    files.each do |file, content|
-      File.write(File.join(dir, file), content)
+    # Método para construir todas las imágenes de prueba.
+    def build_all_images
+      build_exit_image
+      build_loop_image
+      build_file_test_image
+      build_special_chars_image
+      build_large_file_image
     end
-    File.write(File.join(dir, "Dockerfile"), dockerfile)
-    build_image(dir, image_tag)
+
+    # Crea una imagen en un directorio temporal.
+    # files: hash con rutas relativas y contenido.
+    def build_temp_image(prefix, image_tag, dockerfile, files = {})
+      dir = Dir.mktmpdir(prefix)
+      temp_dirs[prefix.to_sym] = dir
+      files.each do |file, content|
+        File.write(File.join(dir, file), content)
+      end
+      File.write(File.join(dir, "Dockerfile"), dockerfile)
+      build_image(dir, image_tag)
+    end
+
+    def build_image(context_dir, image_tag)
+      cmd = ["podman", "build", "-t", image_tag, context_dir]
+      stdout, stderr, status = Open3.capture3(*cmd)
+      raise "Failed to build image #{image_tag}: #{stderr}" unless status.success?
+    end
+
+    def remove_test_image(image_tag)
+      cmd = ["podman", "rmi", "-f", image_tag]
+      Open3.capture3(*cmd)
+    end
+
+    def build_exit_image
+      dockerfile = <<~DOCKERFILE
+        FROM alpine:latest
+        CMD echo "hola"
+      DOCKERFILE
+      build_temp_image("hola_exit", TEST_IMAGES[:exit], dockerfile)
+    end
+
+    def build_loop_image
+      dockerfile = <<~DOCKERFILE
+        FROM alpine:latest
+        CMD sh -c 'while true; do echo "hola"; sleep 5; done'
+      DOCKERFILE
+      build_temp_image("hola_loop", TEST_IMAGES[:loop], dockerfile)
+    end
+
+    def build_file_test_image
+      dockerfile = <<~DOCKERFILE
+        FROM alpine:latest
+        COPY test.txt /etc/test.txt
+        CMD ["tail", "-f", "/dev/null"]
+      DOCKERFILE
+      build_temp_image("file_test", TEST_IMAGES[:file], dockerfile, { "test.txt" => "hello world" })
+    end
+
+    def build_special_chars_image
+      dockerfile = <<~DOCKERFILE
+        FROM alpine:latest
+        COPY special.txt /etc/special.txt
+        CMD ["tail", "-f", "/dev/null"]
+      DOCKERFILE
+      build_temp_image("special_chars_test", TEST_IMAGES[:special], dockerfile, { "special.txt" => special_content })
+    end
+
+    def build_large_file_image
+      dockerfile = <<~DOCKERFILE
+        FROM alpine:latest
+        COPY large.txt /etc/large.txt
+        CMD ["tail", "-f", "/dev/null"]
+      DOCKERFILE
+      build_temp_image("large_file_test", TEST_IMAGES[:large], dockerfile, { "large.txt" => large_content })
+    end
   end
 
-  def build_image(context_dir, image_tag)
-    cmd = ["podman", "build", "-t", image_tag, context_dir]
-    stdout, stderr, status = Open3.capture3(*cmd)
-    raise "Failed to build image #{image_tag}: #{stderr}" unless status.success?
+  # Se ejecuta antes de cada prueba.
+  # Se verifica si las imágenes ya fueron construidas; de lo contrario se construyen.
+  def setup
+    unless self.class.images_built
+      self.class.build_all_images
+      self.class.images_built = true
+    end
+    # Asignamos variables de instancia para facilitar el acceso
+    @special_content = self.class.special_content
+    @large_content   = self.class.large_content
   end
 
-  def remove_test_image(image_tag)
-    cmd = ["podman", "rmi", "-f", image_tag]
-    Open3.capture3(*cmd)
+  # No se eliminan las imágenes en cada teardown, ya que se quiere mantenerlas
+  # durante toda la suite. La limpieza se realiza en Minitest.after_run.
+  def teardown
+    # Aquí se pueden limpiar contenedores u otros recursos creados en cada test.
   end
 
-  def build_all_images
-    build_exit_image
-    build_loop_image
-    build_file_test_image
-    build_special_chars_image
-    build_large_file_image
-  end
-
-  def build_exit_image
-    dockerfile = <<~DOCKERFILE
-      FROM alpine:latest
-      CMD echo "hola"
-    DOCKERFILE
-    build_temp_image("hola_exit", TEST_IMAGES[:exit], dockerfile)
-  end
-
-  def build_loop_image
-    dockerfile = <<~DOCKERFILE
-      FROM alpine:latest
-      CMD sh -c 'while true; do echo "hola"; sleep 5; done'
-    DOCKERFILE
-    build_temp_image("hola_loop", TEST_IMAGES[:loop], dockerfile)
-  end
-
-  def build_file_test_image
-    dockerfile = <<~DOCKERFILE
-      FROM alpine:latest
-      COPY test.txt /etc/test.txt
-      CMD ["tail", "-f", "/dev/null"]
-    DOCKERFILE
-    build_temp_image("file_test", TEST_IMAGES[:file], dockerfile, { "test.txt" => "hello world" })
-  end
-
-  def build_special_chars_image
-    dockerfile = <<~DOCKERFILE
-      FROM alpine:latest
-      COPY special.txt /etc/special.txt
-      CMD ["tail", "-f", "/dev/null"]
-    DOCKERFILE
-    build_temp_image("special_chars_test", TEST_IMAGES[:special], dockerfile, { "special.txt" => @special_content })
-  end
-
-  def build_large_file_image
-    dockerfile = <<~DOCKERFILE
-      FROM alpine:latest
-      COPY large.txt /etc/large.txt
-      CMD ["tail", "-f", "/dev/null"]
-    DOCKERFILE
-    build_temp_image("large_file_test", TEST_IMAGES[:large], dockerfile, { "large.txt" => @large_content })
+  # Limpieza global: se eliminan los directorios temporales y las imágenes creadas.
+  Minitest.after_run do
+    TestPodmanManager.temp_dirs.each_value do |dir|
+      FileUtils.remove_entry(dir) if Dir.exist?(dir)
+    end
+    TEST_IMAGES.values.each { |tag| TestPodmanManager.remove_test_image(tag) }
   end
 
   # --- Tests ---
@@ -117,7 +138,7 @@ class TestPodmanManager < Minitest::Test
   end
 
   def test_create_and_start_container
-    # Test with long-running container
+    # Test con contenedor de larga ejecución
     container = PodmanManager::create_container(image: TEST_IMAGES[:loop], name: "test_loop_container")
     assert_instance_of PodmanManager::Container, container, "Expected a Container object from create_container"
 
@@ -130,10 +151,10 @@ class TestPodmanManager < Minitest::Test
     container.remove
     refute container.exists?, "Expected container to not exist after removal"
 
-    # Test with quick-exit container
+    # Test con contenedor de rápida finalización
     container = PodmanManager::create_container(image: TEST_IMAGES[:exit], name: "test_exit_container")
     container.start
-    sleep(1) # Allow time for the quick-exit container to finish
+    sleep(1) # Permite que el contenedor de rápida finalización termine
     assert_equal "exited", container.status, "Expected quick-exit container to be exited"
     container.remove
   end
@@ -153,13 +174,12 @@ class TestPodmanManager < Minitest::Test
     assert_operator stats.cpu_percentage, :>=, 0.0, "CPU percentage should be non-negative"
     assert_operator stats.memory_usage, :>=, 0.0, "Memory usage should be non-negative"
 
-    # Test stats normalization separately
+    # Test de normalización de stats
     raw_stats = { "CPUPerc" => "5.00%", "MemUsage" => "10.5MiB / 100MiB" }
     normalized_stats = PodmanManager::ContainerStats.new(raw_stats)
     assert_equal 5.0, normalized_stats.cpu_percentage, "Normalized CPU percentage should be 5.0"
     assert_equal 10.5, normalized_stats.memory_usage, "Normalized memory usage should be 10.5"
 
-    # Verify error when container is stopped
     container.stop
     assert_raises(PodmanManager::CommandError, "Expected error when getting stats for stopped container") do
       container.stats
@@ -243,24 +263,24 @@ class TestPodmanManager < Minitest::Test
   end
 
   def test_error_handling
-    # Test non-existent container error
+    # Test para contenedor inexistente
     assert_raises(PodmanManager::ContainerNotFoundError) do
       PodmanManager::Container.new("nonexistent", PodmanManager).status
     end
 
-    # Test invalid image error
+    # Test para imagen inválida
     assert_raises(PodmanManager::CommandError) do
       PodmanManager::create_container(image: "nonexistent:latest")
     end
 
-    # Test cleanup with with_container when an error is raised inside the block
+    # Test de limpieza con with_container cuando se lanza un error dentro del bloque
     assert_raises(RuntimeError) do
       PodmanManager::with_container(image: TEST_IMAGES[:exit]) do |container|
         raise RuntimeError, "Test error"
       end
     end
 
-    # Verify that no containers remain for the test exit image
+    # Verifica que no queden contenedores de la imagen de prueba exit
     containers = PodmanManager::container_ids_by_image(TEST_IMAGES[:exit])
     assert_empty containers, "Expected no containers to remain after error in with_container"
   end
@@ -275,13 +295,13 @@ class TestPodmanManager < Minitest::Test
     expected = ["podman", "create", "-d", "--name", "test_container", "--memory", "512m", TEST_IMAGES[:exit]]
     assert_equal expected, cmd, "PodmanCommand builder did not produce expected command array"
 
-    # Test option name formatting with symbol keys
+    # Test con opción con key symbol y formato esperado
     cmd = PodmanManager::PodmanCommand.new("run")
           .add_option(:memory_swap, "1g")
           .build
     assert_equal ["podman", "run", "--memory-swap", "1g"], cmd, "Option name formatting failed"
 
-    # Test method chaining for stats command
+    # Test encadenado de métodos para stats command
     cmd = PodmanManager::PodmanCommand.new("stats")
           .add_argument("container_id")
           .add_option("no-stream", true)
@@ -291,3 +311,4 @@ class TestPodmanManager < Minitest::Test
     assert_equal expected, cmd, "PodmanCommand chaining did not produce expected command"
   end
 end
+
