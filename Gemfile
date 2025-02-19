@@ -9,3 +9,5 @@ gem "open3", "~> 0.2.1"
 gem "logger", "~> 1.6"
 
 gem "json", "~> 2.10"
+
+gem "base64", "~> 0.2.0"

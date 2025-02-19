@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name          = 'podman-manager'
-  spec.version       = '0.1.0'
+  spec.version       = '0.1.1'
   spec.authors       = ['Pedro Navajas Modelo']
   spec.email         = ['navajas@modelo.solutions']
 
@@ -13,5 +13,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   spec.add_dependency 'open3'
+  spec.add_dependency 'base64'
 end
 
