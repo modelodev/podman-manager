@@ -3,6 +3,7 @@ require 'tmpdir'
 require 'fileutils'
 require 'open3'
 require 'logger'
+require 'base64'
 require_relative '../lib/podman-manager'
 
 # Test suite for PodmanManager
@@ -310,5 +311,39 @@ class TestPodmanManager < Minitest::Test
     expected = ["podman", "stats", "container_id", "--no-stream", "true", "--format", "json"]
     assert_equal expected, cmd, "PodmanCommand chaining did not produce expected command"
   end
-end
 
+  def test_read_label
+    # Define the agent manifest YAML content.
+    manifest_yaml = <<~YAML
+      version: '1.0'
+      description: "GPT-based processing agent"
+      config:
+        - name: NAME
+          type: string
+          required: true
+          description: "Unique identifier for the agent instance"
+        - name: PORT
+          type: integer
+          required: true
+          default: 8989
+          description: "Port where the agent listens"
+    YAML
+
+    # Encode the YAML content in Base64.
+    encoded_manifest = Base64.strict_encode64(manifest_yaml)
+
+    # Create a Dockerfile that sets a label with the Base64-encoded manifest.
+    dockerfile = <<~DOCKERFILE
+      FROM alpine:latest
+      LABEL agent.manifest="#{encoded_manifest}"
+      CMD ["echo", "hello"]
+    DOCKERFILE
+
+    # Build a temporary image with the agent.manifest label.
+    self.class.build_temp_image("agent_manifest", "test/agent_manifest:latest", dockerfile)
+
+    # Use the read_label method to retrieve and decode the label.
+    manifest_read = PodmanManager.read_label("test/agent_manifest:latest", "agent.manifest", decode: true)
+    assert_equal manifest_yaml.strip, manifest_read.strip, "The agent manifest should match the expected YAML"
+  end
+end

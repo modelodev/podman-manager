@@ -1,4 +1,4 @@
-require 'pry'
+require 'base64'
 require 'open3'
 require 'logger'
 require 'json'
@@ -174,8 +174,6 @@ module PodmanManager
       end
     end
 
-    private
-
     def execute_podman_command(cmd)
       stdout, stderr, status = Open3.capture3(*cmd)
       return stdout if status.success?
@@ -197,6 +195,15 @@ module PodmanManager
     cmd = PodmanCommand.new("image").add_argument("exists").add_argument(image_name).build
     _, _, status = Open3.capture3(*cmd)
     status.success?
+  end
+
+  def read_label(image, label_key, decode: false)
+    cmd = ["podman", "inspect", "--format", "{{ index .Config.Labels \"#{label_key}\" }}", image]
+    stdout, stderr, status = Open3.capture3(*cmd)
+    raise CommandError, "Failed to inspect image: #{stderr}" unless status.success?
+    label_value = stdout.to_s.strip
+    return nil if label_value.empty?
+    decode ? Base64.decode64(label_value) : label_value
   end
 
   def create_container(image:, name: nil, **options)
